@@ -15,12 +15,19 @@ import {
   Monitor,
   Info,
   Maximize2,
-  X
+  X,
+  MousePointerClick
 } from 'lucide-react';
 import { BGPattern } from './components/ui/bg-pattern';
 
 export default function App() {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+  
+  // Mouse interactive controls
+  const [interactive, setInteractive] = useState<boolean>(true);
+  const [mouseRadius, setMouseRadius] = useState<number>(200);
+  const [mouseStrength, setMouseStrength] = useState<number>(8);
+
   // Preset themes
   const presets = [
     {
@@ -86,21 +93,22 @@ export default function App() {
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Component: BGPattern (Dots & Center-Fade Pattern + Glow Background)
- * Description: Fully optimized dot pattern background with high-performance CSS fades
- *              and an integrated glowing radial-gradient back layer.
+ * Component: BGPattern (Canvas-Powered Dots & Center-Fade Pattern + Glow Background)
+ * Description: Fully optimized dot pattern background with high-performance CSS fades,
+ *              an integrated glowing radial-gradient back layer, and GPU-accelerated
+ *              Canvas mouse inertial tracking for magnetic/concave distortion effects.
  */
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 
 export interface BGPatternProps extends React.ComponentProps<'div'> {
-  /** Dimension of the grid cell (pixel spacing between dots) */
+  /** Size of each grid cell (spacing between dots) */
   size?: number;
-  /** Radius/size of each dot in pixels */
+  /** Size of each dot in pixels */
   dotSize?: number;
-  /** Color of the dots (e.g., HEX, RGBA) */
+  /** Color of the dots */
   fill?: string;
-  /** Backdrop color the pattern fades into (Must match parent background) */
+  /** Background color to fade into at the center */
   maskColor?: string;
   /** Position of the fade mask circle (e.g. 'center', 'top', 'bottom', 'top-left') */
   maskPosition?: 'center' | 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
@@ -108,21 +116,27 @@ export interface BGPatternProps extends React.ComponentProps<'div'> {
   maskStart?: number;
   /** End percentage of transparency fade mask (Default: 80) */
   maskEnd?: number;
-  /** Whether to render the luxury glowing top-center radial gradient */
+  /** Whether to show the top-center glowing radial background */
   showGlow?: boolean;
-  /** Glow color configuration (Defaults to #244FD4 at ~22% opacity) */
+  /** Custom color for the glowing radial background */
   glowColor?: string;
   /** Glow layer size percentage (Default: 125) */
   glowSize?: number;
   /** Glow layer spread core percentage (Default: 40) */
   glowSpread?: number;
+  /** Whether to enable interactive mouse warping/distortion */
+  interactive?: boolean;
+  /** Magnetic/Interactive radius around mouse */
+  mouseRadius?: number;
+  /** Max warping deflection/strength */
+  mouseStrength?: number;
 }
 
 const BGPattern = React.forwardRef<HTMLDivElement, BGPatternProps>(
   (
     {
       size = 24,
-      dotSize = 1,
+      dotSize = 2.4,
       fill = 'rgba(156, 163, 175, 0.15)',
       maskColor = '#090a0b',
       maskPosition = 'center',
@@ -132,13 +146,143 @@ const BGPattern = React.forwardRef<HTMLDivElement, BGPatternProps>(
       glowColor = 'rgba(36, 79, 212, 0.22)',
       glowSize = 125,
       glowSpread = 40,
+      interactive = false,
+      mouseRadius = 200,
+      mouseStrength = 8,
       className,
       style,
       ...props
     },
     ref
   ) => {
-    // Map position types to CSS circle placement
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const mouseRef = useRef({ x: -2000, y: -2000, active: false });
+    const lerpedMouse = useRef({ x: -2000, y: -2000, opacity: 0 });
+
+    useEffect(() => {
+      if (!interactive) return;
+
+      const handleMouseMove = (e: MouseEvent) => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const rect = canvas.getBoundingClientRect();
+        mouseRef.current.x = e.clientX - rect.left;
+        mouseRef.current.y = e.clientY - rect.top;
+        mouseRef.current.active = true;
+      };
+
+      const handleMouseLeave = () => {
+        mouseRef.current.active = false;
+      };
+
+      window.addEventListener('mousemove', handleMouseMove, { passive: true });
+      document.addEventListener('mouseleave', handleMouseLeave, { passive: true });
+
+      return () => {
+        window.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseleave', handleMouseLeave);
+      };
+    }, [interactive]);
+
+    useEffect(() => {
+      if (!interactive) return;
+
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      let animationId: number;
+      let width = 0;
+      let height = 0;
+
+      const resize = () => {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        width = rect.width;
+        height = rect.height;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.resetTransform();
+        ctx.scale(dpr, dpr);
+      };
+
+      resize();
+
+      const resizeObserver = new ResizeObserver(() => {
+        resize();
+      });
+      if (canvas.parentElement) {
+        resizeObserver.observe(canvas.parentElement);
+      }
+
+      const drawLoop = () => {
+        ctx.clearRect(0, 0, width, height);
+
+        const targetOpacity = mouseRef.current.active ? 1 : 0;
+        lerpedMouse.current.opacity += (targetOpacity - lerpedMouse.current.opacity) * 0.08;
+
+        if (mouseRef.current.active) {
+          if (lerpedMouse.current.x < -1000) {
+            lerpedMouse.current.x = mouseRef.current.x;
+            lerpedMouse.current.y = mouseRef.current.y;
+          } else {
+            lerpedMouse.current.x += (mouseRef.current.x - lerpedMouse.current.x) * 0.12;
+            lerpedMouse.current.y += (mouseRef.current.y - lerpedMouse.current.y) * 0.12;
+          }
+        }
+
+        const offsetX = (width % size) / 2;
+        const offsetY = (height % size) / 2;
+
+        ctx.fillStyle = fill;
+
+        const mX = lerpedMouse.current.x;
+        const mY = lerpedMouse.current.y;
+        const currentOpacity = lerpedMouse.current.opacity;
+        const isInteracting = currentOpacity > 0.01;
+
+        for (let x = offsetX; x < width + size; x += size) {
+          for (let y = offsetY; y < height + size; y += size) {
+            let drawX = x;
+            let drawY = y;
+            let currentDotSize = dotSize;
+
+            if (isInteracting) {
+              const dx = mX - x;
+              const dy = mY - y;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+
+              if (dist < mouseRadius) {
+                const t = 1 - dist / mouseRadius;
+                const easeValue = Math.sin(t * Math.PI / 2);
+                const shiftDist = easeValue * mouseStrength * currentOpacity;
+
+                drawX = x - (dx / (dist || 1)) * shiftDist;
+                drawY = y - (dy / (dist || 1)) * shiftDist;
+                currentDotSize = dotSize * (1 + t * 1.5 * currentOpacity);
+              }
+            }
+
+            ctx.beginPath();
+            ctx.arc(drawX, drawY, Math.max(0.2, currentDotSize), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        animationId = requestAnimationFrame(drawLoop);
+      };
+
+      drawLoop();
+
+      return () => {
+        cancelAnimationFrame(animationId);
+        resizeObserver.disconnect();
+      };
+    }, [interactive, size, dotSize, fill, mouseRadius, mouseStrength]);
+
     const positionMap = {
       'center': 'circle at center',
       'top': 'circle at top',
@@ -152,7 +296,6 @@ const BGPattern = React.forwardRef<HTMLDivElement, BGPatternProps>(
     };
 
     const gradientPosition = positionMap[maskPosition] || 'circle at center';
-
     return (
       <div
         ref={ref}
@@ -163,29 +306,36 @@ const BGPattern = React.forwardRef<HTMLDivElement, BGPatternProps>(
         }}
         {...props}
       >
-        {/* Glow Layer (Faded gradient at 50% -50% using #244FD4 style) */}
         {showGlow && (
           <div 
-            className="absolute inset-0 w-full h-full z-0 transition-all duration-300"
+            className="absolute inset-0 w-full h-full z-0 transition-all duration-300 pointer-events-none"
             style={{
               background: \`radial-gradient(\${glowSize}% \${glowSize}% at 50% -50%, \${glowColor} \${glowSpread}%, transparent 100%)\`
             }}
           />
         )}
 
-        {/* Dots Pattern Layer (masked based on maskPosition setting) */}
-        <div 
-          className="absolute inset-0 w-full h-full z-10"
-          style={{
-            backgroundImage: \`radial-gradient(\${fill} \${dotSize}px, transparent \${dotSize}px)\`,
-            backgroundSize: \`\${size}px \${size}px\`,
-            backgroundPosition: 'center',
-            // Pure CSS masking ensures fluid, custom-faded transparent layouts 
-            // across Safari, iOS, Chrome & modern engines natively.
-            maskImage: \`radial-gradient(\${gradientPosition}, transparent \${maskStart}%, \${maskColor} \${maskEnd}%)\`,
-            WebkitMaskImage: \`radial-gradient(\${gradientPosition}, transparent \${maskStart}%, \${maskColor} \${maskEnd}%)\`,
-          }}
-        />
+        {!interactive ? (
+          <div 
+            className="absolute inset-0 w-full h-full z-10 pointer-events-none"
+            style={{
+              backgroundImage: \`radial-gradient(circle, \${fill} \${dotSize}px, transparent \${dotSize + 0.6}px)\`,
+              backgroundSize: \`\${size}px \${size}px\`,
+              backgroundPosition: 'center',
+              maskImage: \`radial-gradient(\${gradientPosition}, transparent \${maskStart}%, \${maskColor} \${maskEnd}%)\`,
+              WebkitMaskImage: \`radial-gradient(\${gradientPosition}, transparent \${maskStart}%, \${maskColor} \${maskEnd}%)\`,
+            }}
+          />
+        ) : (
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 w-full h-full z-10 pointer-events-none block"
+            style={{
+              maskImage: \`radial-gradient(\${gradientPosition}, transparent \${maskStart}%, \${maskColor} \${maskEnd}%)\`,
+              WebkitMaskImage: \`radial-gradient(\${gradientPosition}, transparent \${maskStart}%, \${maskColor} \${maskEnd}%)\`,
+            }}
+          />
+        )}
       </div>
     );
   }
@@ -216,6 +366,9 @@ export default function LandingView() {
         glowColor="${glowColor}"
         glowSize={${glowSize}}
         glowSpread={${glowSpread}}
+        interactive={${interactive}}
+        mouseRadius={${mouseRadius}}
+        mouseStrength={${mouseStrength}}
       />
 
       {/* 2. Page focal-point typography */}
@@ -348,6 +501,9 @@ export default function LandingView() {
               glowColor={glowColor}
               glowSize={glowSize}
               glowSpread={glowSpread}
+              interactive={interactive}
+              mouseRadius={mouseRadius}
+              mouseStrength={mouseStrength}
             />
 
             {/* Top custom bar for measurements/preview info overlay */}
@@ -705,6 +861,64 @@ export default function LandingView() {
                   </div>
                 </div>
               </div>
+
+              {/* Interactive Mouse Distortion Controls */}
+              <div className="border-t border-white/10 pt-3 mt-1 text-xs">
+                <div className="flex justify-between items-center mb-1.5">
+                  <span className="text-slate-400">انیمیشن و انحراف ماوس (Mouse Distortion)</span>
+                  <span className={`text-[10px] font-mono font-medium px-2 py-0.5 rounded ${interactive ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' : 'bg-zinc-805 text-zinc-400'}`}>
+                    {interactive ? 'فعال (Interactive)' : 'غیرفعال'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4 mb-2">
+                  <span className="text-[11px] text-slate-500 font-sans">اعوجاج عدسی مقعر اطراف اشاره‌گر ماوس (با جابجایی تجمعی نقطه‌ها)</span>
+                  <label className="relative inline-flex items-center cursor-pointer select-none">
+                    <input 
+                      type="checkbox" 
+                      checked={interactive} 
+                      onChange={() => setInteractive(!interactive)} 
+                      className="sr-only peer"
+                    />
+                    <div className="w-8 h-4.5 bg-zinc-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-zinc-500 after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-indigo-500 peer-checked:after:bg-white cursor-pointer"></div>
+                  </label>
+                </div>
+
+                {interactive && (
+                  <div className="space-y-3 mt-3">
+                    <div>
+                      <div className="flex justify-between items-center text-[11px] mb-1">
+                        <span className="text-slate-400 font-medium font-sans">محدوده شعاع اثر دور ماوس (Interactive Radius)</span>
+                        <span className="text-xs font-mono text-white bg-white/5 px-2 py-0.5 rounded border border-white/10">{mouseRadius}px</span>
+                      </div>
+                      <input 
+                        type="range"
+                        min="80"
+                        max="350"
+                        step="10"
+                        value={mouseRadius}
+                        onChange={(e) => setMouseRadius(Number(e.target.value))}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <div className="flex justify-between items-center text-[11px] mb-1 font-sans">
+                        <span className="text-slate-400 font-medium">میزان فرو رفتگی و اعوجاج نقطه‌ها (Lens Distortion)</span>
+                        <span className="text-xs font-mono text-white bg-white/5 px-2 py-0.5 rounded border border-white/10">{mouseStrength}px</span>
+                      </div>
+                      <input 
+                        type="range"
+                        min="5"
+                        max="60"
+                        step="1"
+                        value={mouseStrength}
+                        onChange={(e) => setMouseStrength(Number(e.target.value))}
+                        className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -905,6 +1119,9 @@ export default function LandingView() {
               glowColor={glowColor}
               glowSize={glowSize}
               glowSpread={glowSpread}
+              interactive={interactive}
+              mouseRadius={mouseRadius}
+              mouseStrength={mouseStrength}
             />
 
             {/* Header controls inside fullscreen view */}
