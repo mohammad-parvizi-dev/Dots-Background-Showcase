@@ -1,0 +1,6 @@
+{
+  "name": "Dots Background Showcase",
+  "description": "An interactive playground showcasing the Dots Background with a fade-center mask and rendering its complete implementation for developer use.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
