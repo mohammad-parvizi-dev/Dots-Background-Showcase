@@ -84,7 +84,7 @@ const BGPattern = React.forwardRef<HTMLDivElement, BGPatternProps>(
         <div 
           className="absolute inset-0 w-full h-full z-10"
           style={{
-            backgroundImage: `radial-gradient(${fill} ${dotSize}px, transparent ${dotSize}px)`,
+            backgroundImage: `radial-gradient(circle, ${fill} ${dotSize}px, transparent ${dotSize + 0.6}px)`,
             backgroundSize: `${size}px ${size}px`,
             backgroundPosition: 'center',
             // Core Fade-Center/Custom masking for premium typography contrast
