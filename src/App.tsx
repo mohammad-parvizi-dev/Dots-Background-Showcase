@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Sliders, 
@@ -16,17 +16,29 @@ import {
   Info,
   Maximize2,
   X,
-  MousePointerClick
+  MousePointerClick,
+  Download
 } from 'lucide-react';
 import { BGPattern } from './components/ui/bg-pattern';
 
 export default function App() {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   
+  // Safe load of saved settings from localStorage on initial render
+  const savedSettings = (() => {
+    try {
+      const saved = localStorage.getItem('dot_bg_generator_settings_v1');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error('Error loading saved settings:', e);
+      return null;
+    }
+  })();
+  
   // Mouse interactive controls
-  const [interactive, setInteractive] = useState<boolean>(true);
-  const [mouseRadius, setMouseRadius] = useState<number>(200);
-  const [mouseStrength, setMouseStrength] = useState<number>(8);
+  const [interactive, setInteractive] = useState<boolean>(savedSettings?.interactive ?? true);
+  const [mouseRadius, setMouseRadius] = useState<number>(savedSettings?.mouseRadius ?? 200);
+  const [mouseStrength, setMouseStrength] = useState<number>(savedSettings?.mouseStrength ?? 8);
 
   // Preset themes
   const presets = [
@@ -65,17 +77,62 @@ export default function App() {
   ];
 
   // Pattern parameters state
-  const [size, setSize] = useState<number>(24);
-  const [dotSize, setDotSize] = useState<number>(2.4);
-  const [fill, setFill] = useState<string>('rgba(255, 255, 255, 0.15)');
-  const [maskColor, setMaskColor] = useState<string>('#090a0b');
-  const [showGlow, setShowGlow] = useState<boolean>(true);
-  const [glowColor, setGlowColor] = useState<string>('rgba(36, 79, 212, 0.22)'); // #244FD4 at ~22% opacity
-  const [maskPosition, setMaskPosition] = useState<'center' | 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>('center');
-  const [maskStart, setMaskStart] = useState<number>(10);
-  const [maskEnd, setMaskEnd] = useState<number>(80);
-  const [glowSize, setGlowSize] = useState<number>(125);
-  const [glowSpread, setGlowSpread] = useState<number>(40);
+  const [size, setSize] = useState<number>(savedSettings?.size ?? 24);
+  const [dotSize, setDotSize] = useState<number>(savedSettings?.dotSize ?? 2.4);
+  const [fill, setFill] = useState<string>(savedSettings?.fill ?? 'rgba(255, 255, 255, 0.15)');
+  const [maskColor, setMaskColor] = useState<string>(savedSettings?.maskColor ?? '#090a0b');
+  const [showGlow, setShowGlow] = useState<boolean>(savedSettings?.showGlow ?? true);
+  const [glowColor, setGlowColor] = useState<string>(savedSettings?.glowColor ?? 'rgba(36, 79, 212, 0.22)'); // #244FD4 at ~22% opacity
+  const [maskPosition, setMaskPosition] = useState<'center' | 'top' | 'bottom' | 'left' | 'right' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'>(savedSettings?.maskPosition ?? 'center');
+  const [maskStart, setMaskStart] = useState<number>(savedSettings?.maskStart ?? 10);
+  const [maskEnd, setMaskEnd] = useState<number>(savedSettings?.maskEnd ?? 80);
+  const [glowSize, setGlowSize] = useState<number>(savedSettings?.glowSize ?? 125);
+  const [glowSpread, setGlowSpread] = useState<number>(savedSettings?.glowSpread ?? 40);
+
+  // Background Export State Settings
+  const [exportWidth, setExportWidth] = useState<number>(1920);
+  const [exportHeight, setExportHeight] = useState<number>(1080);
+  const [exportFormat, setExportFormat] = useState<'png' | 'jpeg'>('png');
+
+  // Automatically sync settings to localStorage
+  useEffect(() => {
+    const settings = {
+      size,
+      dotSize,
+      fill,
+      maskColor,
+      showGlow,
+      glowColor,
+      maskPosition,
+      maskStart,
+      maskEnd,
+      glowSize,
+      glowSpread,
+      interactive,
+      mouseRadius,
+      mouseStrength
+    };
+    try {
+      localStorage.setItem('dot_bg_generator_settings_v1', JSON.stringify(settings));
+    } catch (e) {
+      console.error('Failed to save settings to localStorage:', e);
+    }
+  }, [
+    size,
+    dotSize,
+    fill,
+    maskColor,
+    showGlow,
+    glowColor,
+    maskPosition,
+    maskStart,
+    maskEnd,
+    glowSize,
+    glowSpread,
+    interactive,
+    mouseRadius,
+    mouseStrength
+  ]);
 
   // Interactive controls
   const [activeTab, setActiveTab] = useState<'preview' | 'code-component' | 'code-usage'>('preview');
@@ -87,6 +144,99 @@ export default function App() {
     setDotSize(preset.dotSize);
     setFill(preset.fill);
     setMaskColor(preset.maskColor);
+  };
+
+  // Image exporter matching standard CSS overlays
+  const handleExportImage = (exportW: number, exportH: number, format: 'png' | 'jpeg') => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = exportW;
+      canvas.height = exportH;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Fill background matching solid maskColor
+      ctx.fillStyle = maskColor;
+      ctx.fillRect(0, 0, exportW, exportH);
+
+      // Rendering glowing back layers if enabled
+      if (showGlow) {
+        const cx = exportW / 2;
+        const cy = -exportH * 0.5;
+        const radius = Math.max(exportW, exportH) * (glowSize / 100);
+        const glowGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+        glowGrad.addColorStop(0, glowColor);
+        glowGrad.addColorStop(glowSpread / 100, glowColor);
+        glowGrad.addColorStop(1, 'transparent');
+
+        ctx.fillStyle = glowGrad;
+        ctx.fillRect(0, 0, exportW, exportH);
+      }
+
+      // Create dots layer
+      const dotsCanvas = document.createElement('canvas');
+      dotsCanvas.width = exportW;
+      dotsCanvas.height = exportH;
+      const dotsCtx = dotsCanvas.getContext('2d');
+      
+      if (dotsCtx) {
+        const offsetX = (exportW % size) / 2;
+        const offsetY = (exportH % size) / 2;
+
+        dotsCtx.fillStyle = fill;
+        for (let x = offsetX; x < exportW + size; x += size) {
+          for (let y = offsetY; y < exportH + size; y += size) {
+            dotsCtx.beginPath();
+            dotsCtx.arc(x, y, dotSize, 0, Math.PI * 2);
+            dotsCtx.fill();
+          }
+        }
+
+        // Apply masking gradient matching standard UI
+        let maskX = exportW / 2;
+        let maskY = exportH / 2;
+        let rEnd = Math.sqrt(exportW * exportW + exportH * exportH) / 2;
+
+        if (maskPosition === 'top') { maskX = exportW / 2; maskY = 0; rEnd = exportH; }
+        else if (maskPosition === 'bottom') { maskX = exportW / 2; maskY = exportH; rEnd = exportH; }
+        else if (maskPosition === 'left') { maskX = 0; maskY = exportH / 2; rEnd = exportW; }
+        else if (maskPosition === 'right') { maskX = exportW; maskY = exportH / 2; rEnd = exportW; }
+        else if (maskPosition === 'top-left') { maskX = 0; maskY = 0; rEnd = Math.sqrt(exportW * exportW + exportH * exportH); }
+        else if (maskPosition === 'top-right') { maskX = exportW; maskY = 0; rEnd = Math.sqrt(exportW * exportW + exportH * exportH); }
+        else if (maskPosition === 'bottom-left') { maskX = 0; maskY = exportH ; rEnd = Math.sqrt(exportW * exportW + exportH * exportH); }
+        else if (maskPosition === 'bottom-right') { maskX = exportW; maskY = exportH; rEnd = Math.sqrt(exportW * exportW + exportH * exportH); }
+
+        const rStart = rEnd * (maskStart / 100);
+        const rEndFinal = rEnd * (maskEnd / 100);
+
+        const maskGrad = dotsCtx.createRadialGradient(
+          maskX, maskY, rStart,
+          maskX, maskY, Math.max(rStart + 1, rEndFinal)
+        );
+
+        maskGrad.addColorStop(0, 'rgba(0,0,0,0)');
+        maskGrad.addColorStop(1, 'rgba(0,0,0,1)');
+
+        dotsCtx.globalCompositeOperation = 'destination-in';
+        dotsCtx.fillStyle = maskGrad;
+        dotsCtx.fillRect(0, 0, exportW, exportH);
+
+        // Blit layers together
+        ctx.drawImage(dotsCanvas, 0, 0);
+      }
+
+      // Download file
+      const mimeType = format === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const extension = format === 'jpeg' ? 'jpg' : 'png';
+      const dataUrl = canvas.toDataURL(mimeType, 1.0);
+      
+      const link = document.createElement('a');
+      link.download = `dot-pattern-bg-${exportW}x${exportH}.${extension}`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Error generating image export:', err);
+    }
   };
 
   const codeComponentString = `/**
@@ -918,6 +1068,109 @@ export default function LandingView() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Image Export Section */}
+            <div className="border-t border-white/10 pt-4 mt-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 font-mono mb-3">
+                <Download className="size-4 text-indigo-400" />
+                <span>EXPORT BACKGROUND IMAGE / خروجی گرفتن تصویری پس‌زمینه</span>
+              </span>
+
+              <div className="bg-[#0f0f12] border border-white/5 rounded-2xl p-4 space-y-4">
+                <p className="text-[11px] text-slate-400 font-sans leading-relaxed text-right" style={{ direction: 'rtl' }}>
+                  طرح پس‌زمینه نهایی خود را بدون پنل‌ها و به صورت تصویر خام با ابعاد دلخواه دانلود کنید.
+                </p>
+
+                {/* Dimension Inputs */}
+                <div className="grid grid-cols-2 gap-3 font-sans">
+                  <div>
+                    <label className="block text-[10px] text-slate-500 mb-1">عرض تصویر (Width)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={exportWidth}
+                        onChange={(e) => setExportWidth(Math.max(10, Number(e.target.value)))}
+                        className="w-full text-xs font-mono px-3 py-2 rounded-xl bg-[#08080a] border border-white/10 focus:outline-none focus:border-indigo-500 text-white text-center"
+                        placeholder="1920"
+                      />
+                      <span className="absolute right-3 top-2 text-[9px] text-slate-500 font-mono">px</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-slate-500 mb-1">ارتفاع تصویر (Height)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        value={exportHeight}
+                        onChange={(e) => setExportHeight(Math.max(10, Number(e.target.value)))}
+                        className="w-full text-xs font-mono px-3 py-2 rounded-xl bg-[#08080a] border border-white/10 focus:outline-none focus:border-indigo-500 text-white text-center"
+                        placeholder="1080"
+                      />
+                      <span className="absolute right-3 top-2 text-[9px] text-slate-550 font-mono">px</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Presets Grid */}
+                <div className="grid grid-cols-4 gap-1.5 font-sans">
+                  {[
+                    { label: "HD (16:9)", w: 1920, h: 1080 },
+                    { label: "Mobile (9:16)", w: 1080, h: 1920 },
+                    { label: "4K (16:9)", w: 3840, h: 2160 },
+                    { label: "Square (1:1)", w: 1080, h: 1080 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        setExportWidth(preset.w);
+                        setExportHeight(preset.h);
+                      }}
+                      className={`text-[9px] py-1 border rounded-lg transition-all text-center leading-normal break-words ${
+                        exportWidth === preset.w && exportHeight === preset.h
+                          ? 'bg-indigo-500/20 border-indigo-500/40 text-indigo-300 font-medium'
+                          : 'bg-white/5 border-white/5 hover:bg-white/10 text-slate-350'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Formats and Export Button */}
+                <div className="flex items-center gap-3 pt-1">
+                  <div className="flex bg-[#08080a] border border-white/10 rounded-xl p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setExportFormat('png')}
+                      className={`px-3 py-1.5 text-[10px] font-mono font-bold rounded-lg transition-all ${
+                        exportFormat === 'png' ? 'bg-white/10 text-white' : 'text-slate-500 hover:text-slate-400'
+                      }`}
+                    >
+                      PNG
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExportFormat('jpeg')}
+                      className={`px-3 py-1.5 text-[10px] font-mono font-bold rounded-lg transition-all ${
+                        exportFormat === 'jpeg' ? 'bg-white/10 text-white' : 'text-slate-505 hover:text-slate-400'
+                      }`}
+                    >
+                      JPG
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportImage(exportWidth, exportHeight, exportFormat)}
+                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white py-2 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-95 font-bold text-xs"
+                  >
+                    <Download className="size-4" />
+                    <span>دانلود فایل تصویری پس‌زمینه</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
