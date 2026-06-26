@@ -1,6 +1,6 @@
 {
-  "name": "Dots Background Showcase",
-  "description": "An interactive playground showcasing the Dots Background with a fade-center mask and rendering its complete implementation for developer use.",
+  "name": "Refractive: Dots & Liquid Glass Studio",
+  "description": "An interactive WebGL design studio for developers. Customize and export high-performance Dots Backgrounds and interactive Liquid Glass refraction filters with custom IOR, Chromatic Aberration, and specularity.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
